@@ -1,0 +1,129 @@
+---
+
+# Pre-Flight check for valiable consistency
+- fail:
+    msg: the variable "{{ item }}" should be defined.
+  when: item == ''
+  with_items:
+    - "{{ tgt_vm_name }}"
+    - "{{ vmwin_adminpassword }}"
+    - "{{ vmwin_switch }}"
+    - "{{ vmwin_ip_address }}"
+    - "{{ vmwin_ip_prefixlength }}"
+    - "{{ vmwin_ip_gateway }}"
+
+# Modify VM configuration
+- name: set vm cpu count
+  win_shell: Set-VMProcessor '{{ tgt_vm_name }}' -Count {{ vmwin_cpu_count }}
+  when: vmwin_cpu_count != ''
+
+- name: set vm memory (fixed)
+  win_shell: Set-VMMemory '{{ tgt_vm_name }}' -DynamicMemoryEnabled $false -StartupBytes {{ vmwin_memory_size }}
+  when: ( vmwin_memory_size_min == '' or vmwin_memory_size_max == '' )
+
+- name: set vm memory (dynamic)
+  win_shell: Set-VMMemory '{{ tgt_vm_name }}' -DynamicMemoryEnabled $true -StartupBytes {{ vmwin_memory_size }} -MinimumBytes {{ vmwin_memory_size_min }} -MaximumBytes {{ vmwin_memory_size_max }}
+  when: ( vmwin_memory_size_min != '' and vmwin_memory_size_max != '' )
+
+# 1st Powered On VM 
+- name: power on vm using winrm module
+  win_shell: Start-VM -name '{{ tgt_vm_name }}'
+
+# Pause XX seconds for completion sysprep and shutdow process
+## NEED TO ADJUST
+- pause: seconds=120
+
+# Do Sysprep 
+- name: do sysprep with vm shutdown
+  win_shell: |
+    $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
+    $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
+    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { Start-Process C:\Windows\System32\Sysprep\sysprep.exe -ArgumentList "/generalize /oobe /shutdown /unattend:{{ vmwin_sysprep_rspfile }}" }
+  when: vmwin_sysprep_rspfile is defined
+
+# Pause XX seconds for completion sysprep and shutdow process
+## NEED TO ADJUST
+- pause: seconds=240
+
+# 2nd Powered On VM after Sysprep
+- name: power on vm using winrm module
+  win_shell: Start-VM -name '{{ tgt_vm_name }}'
+
+# Pause XX seconds for completion booting VM
+## NEED TO ADJUST
+- pause: seconds=360
+
+# Get VM Network Adapter MAC
+- name: get vm network adapter mac
+  win_shell: Get-VMNetworkAdapter -VMName '{{ tgt_vm_name }}'
+  register: tgtvmnetadapter
+  
+# Set fact
+- name: set vm network adapter mac
+  set_fact:
+    tgtvmnetmacaddress: "{{ tgtvmnetadapter.stdout_lines | ret_macaddress_from_getvmnetadpt( vmwin_switch ) }}"
+
+# Get Network Adapter Index of VM with MAC
+- name: get network adapter index with mac
+  win_shell: |
+    $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
+    $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
+    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { Get-NetAdapter | Format-Table }
+  register: vmnetadapter
+
+# Set fact
+- name: set vm network adapter index
+  set_fact:
+    vmnetadapterindex: "{{ vmnetadapter.stdout_lines | ret_adapterindex( tgtvmnetmacaddress ) }}"
+
+# Debug
+- debug: var=vmnetadapterindex
+
+# Set DHCP enabled first
+- name: set dhcp enabled to the interface
+  win_shell: |
+    $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
+    $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
+    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { Set-NetIPInterface -InterfaceIndex {{ vmnetadapterindex }} -Dhcp Enabled }
+
+# Set New IP Setting
+- name: set new IP setting
+  win_shell: |
+    $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
+    $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
+    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { New-NetIPAddress -InterfaceIndex {{ vmnetadapterindex }} -AddressFamily IPv4 -IPAddress {{ vmwin_ip_address }} -PrefixLength {{ vmwin_ip_prefixlength }} -DefaultGateway {{ vmwin_ip_gateway }} }
+
+# Set New DNS Setting
+- name: set new DNS Server setting
+  win_shell: |
+    $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
+    $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
+    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { Set-DnsClientServerAddress -InterfaceIndex {{ vmnetadapterindex }} -ServerAddress {{ vmwin_dns_address }} }
+  when: vmwin_dns_address != ""
+
+# Change Computer Name
+- name: change computer name to target vm name
+  win_shell: |
+    $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
+    $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
+    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { Rename-Computer -NewName {{ tgt_vm_name }} -Force }
+
+# Join to AD domian
+- name: join to AD domain
+  win_shell: |
+    $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
+    $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
+    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { $pwd = ConvertTo-SecureString -AsPlainText -Force \"{{ vmwin_ad_adminpassword }}\" ; $cred = New-Object System.Management.Automation.PSCredential(\"{{ vmwin_ad_domain }}\{{ vmwin_ad_adminuser }}\",$pwd) ; Add-Computer -Domain {{ vmwin_ad_domain }} -Credential $cred }
+  when: vmwin_ad_domain != ""
+
+# Restart VM
+- name: restart vm
+  win_shell: |
+    $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
+    $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
+    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { Restart-Computer }
+
+# Pause XX seconds for completion booting VM
+## NEED TO ADJUST
+- pause: seconds=120
+

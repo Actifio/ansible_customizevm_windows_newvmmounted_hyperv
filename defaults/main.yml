@@ -1,0 +1,49 @@
+---
+# defaults file for ansible_customize_winvm_newvmmounted
+
+# Target VM Name
+tgt_vm_name: ''
+
+# Source VM Windows Administrator User Name
+vmwin_adminuser: 'Administrator'
+
+# Source VM Windows Administrator Password
+vmwin_adminpassword: ''
+
+# Sysprep Response File
+vmwin_sysprep_rspfile: ''
+
+# Virtual Switch Name to be connected 
+vmwin_switch: ''
+
+# CPU count of VM
+vmwin_cpu_count: ''
+
+# Memory size of VM ( Need to specify number and unit like '1024MB' )
+vmwin_mem_size: ''
+# Memory size min of VM
+vmwin_mem_size_min: ''
+# Memory size min of VM
+vmwin_mem_size_max: ''
+
+# New VM Windows IP Address
+vmwin_ip_address: ''
+
+# New VM Windows Netmask Length
+vmwin_ip_prefixlength: ''
+
+# New VM Windows Gateway
+vmwin_ip_gateway: ''
+
+# New VM DNS Server Address
+vmwin_dns_address: ''
+
+# Joining AD Domain Name
+vmwin_ad_domain: ''
+
+# Joining AD Administrator User
+vmwin_ad_adminuser: ''
+
+# Joining AD Administrator Password
+vmwin_ad_adminpassword: ''
+
