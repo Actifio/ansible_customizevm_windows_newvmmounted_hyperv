@@ -38,7 +38,7 @@
   win_shell: |
     $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
     $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
-    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { Start-Process C:\Windows\System32\Sysprep\sysprep.exe -ArgumentList "/generalize /oobe /shutdown /unattend:{{ vmwin_sysprep_rspfile }}" }
+    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { Start-Process C:\Windows\System32\Sysprep\sysprep.exe -ArgumentList "/generalize /oobe /shutdown /quiet /unattend:{{ vmwin_sysprep_rspfile }}" }
   when: vmwin_sysprep_rspfile is defined
 
 # Pause XX seconds for completion sysprep and shutdow process
