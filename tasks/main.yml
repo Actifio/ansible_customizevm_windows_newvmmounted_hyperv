@@ -34,24 +34,37 @@
 - pause: seconds=120
 
 # Do Sysprep 
-- name: do sysprep with vm shutdown
-  win_shell: |
-    $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
-    $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
-    Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { Start-Process C:\Windows\System32\Sysprep\sysprep.exe -ArgumentList "/generalize /oobe /shutdown /quiet /unattend:{{ vmwin_sysprep_rspfile }}" }
-  when: vmwin_sysprep_rspfile is defined
+- block:
+  - name: do sysprep with vm shutdown
+    win_shell: |
+      $pwd = ConvertTo-SecureString -AsPlainText -Force "{{ vmwin_adminpassword }}"
+      $cred = New-Object System.Management.Automation.PSCredential("{{ vmwin_adminuser }}",$pwd)
+      Invoke-Command -VMName '{{ tgt_vm_name }}' -Credential $cred -ScriptBlock { Start-Process C:\Windows\System32\Sysprep\sysprep.exe -ArgumentList "/generalize /oobe /shutdown /quiet /unattend:{{ vmwin_sysprep_rspfile }}" }
 
 # Pause XX seconds for completion sysprep and shutdow process
 ## NEED TO ADJUST
-- pause: seconds=240
+  - pause: seconds=240
+
+  - name: check vm state
+    win_shell: Get-VM -name '{{ tgt_vm_name }}' | where { $_.State -eq "Running" }
+    register: getvmstate
+
+  - set_fact:
+      vmstateaftersysprep: getvmstate.stdout_lines[0]
+
+  - fail:
+      msg: Seems to failure of sysprep
+    when: vmstateaftersysprep != ''
 
 # 2nd Powered On VM after Sysprep
-- name: power on vm using winrm module
-  win_shell: Start-VM -name '{{ tgt_vm_name }}'
+  - name: power on vm using winrm module
+    win_shell: Start-VM -name '{{ tgt_vm_name }}'
 
 # Pause XX seconds for completion booting VM
 ## NEED TO ADJUST
-- pause: seconds=360
+  - pause: seconds=360
+
+  when: vmwin_sysprep_rspfile != ''
 
 # Get VM Network Adapter MAC
 - name: get vm network adapter mac
